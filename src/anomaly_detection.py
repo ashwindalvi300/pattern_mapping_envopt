@@ -1,67 +1,122 @@
-# src/anomaly_detection.py
+# src/anomaly_rules.py
 
-from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import IsolationForest
-
-
-def fit_scaler(df, selected_features):
-
-    scaler = StandardScaler()
-
-    scaler.fit(
-        df[selected_features]
-    )
-
-    return scaler
+import pandas as pd
 
 
-def transform_data(
-    df,
-    scaler,
-    selected_features
+def compute_flags(
+    df_scaled,
+    df_raw,
+    hist_means,
+    hist_stds,
+    diff_thresholds,
+    value_envelopes,
+    selected_features,
+    primary_features,
+    z_point,
+    z_rolling,
+    rolling_window
 ):
 
-    output = df.copy()
-
-    output[selected_features] = scaler.transform(
-        output[selected_features]
+    flags = pd.Series(
+        0,
+        index=df_scaled.index
     )
 
-    return output
+    for col in selected_features:
+
+        mu = hist_means[col]
+        sig = hist_stds[col]
+
+        if pd.isna(sig) or sig == 0:
+            continue
+
+        z_pt = abs(
+            (df_scaled[col] - mu) / sig
+        )
+
+        layer_a = (
+            z_pt > z_point
+        ).astype(int)
+
+        if col in primary_features:
+
+            roll_mean = (
+                df_scaled[col]
+                .rolling(
+                    rolling_window,
+                    min_periods=1
+                )
+                .mean()
+            )
+
+            z_rl = abs(
+                (roll_mean - mu) / sig
+            )
+
+            layer_b = (
+                z_rl > z_rolling
+            ).astype(int)
+
+        else:
+
+            layer_b = pd.Series(
+                0,
+                index=df_scaled.index
+            )
+
+        # raw_diff = (
+        #     df_raw[col]
+        #     .diff()
+        #     .abs()
+        #     .fillna(0)
+        # )
+
+        # v_min, v_max = (
+        #     value_envelopes[col]
+        # )
+
+        # outside_env = (
+        #     (df_raw[col] < v_min)
+        #     |
+        #     (df_raw[col] > v_max)
+        # )
+
+        # layer_c = (
+        #     (
+        #         raw_diff
+        #         > diff_thresholds[col]
+        #     )
+        #     &
+        #     outside_env
+        # ).astype(int)
+
+        raw_diff = (
+            df_raw[col]
+            .diff()
+            .abs()
+            .fillna(0)
+        )
+
+        v_min, v_max = (
+            value_envelopes[col]
+        )
+
+        outside_env = (
+            (df_raw[col] < v_min)
+            |
+            (df_raw[col] > v_max)
+        )
+
+        layer_c = (
+            raw_diff > diff_thresholds[col]
+        ).astype(int)
 
 
-def train_isolation_forest(
-    historical_df,
-    selected_features
-):
+        flags = (
+            flags
+            | layer_a
+            | layer_b
+            | layer_c
+        )
 
-    model = IsolationForest(
-        contamination=0.01,
-        random_state=42,
-        n_estimators=200
-    )
-
-    model.fit(
-        historical_df[selected_features]
-    )
-
-    return model
-
-
-def apply_iforest(
-    df,
-    model,
-    selected_features
-):
-
-    output = df.copy()
-
-    output["if_score"] = model.decision_function(
-        output[selected_features]
-    )
-
-    output["anomaly"] = model.predict(
-        output[selected_features]
-    )
-
-    return output
+    return flags
