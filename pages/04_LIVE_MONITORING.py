@@ -119,6 +119,30 @@ def classify_window(
 
     spike_features = []
 
+    # for col in selected_features:
+    #     raw_diff = current_chunk_raw[col].diff().abs().fillna(0)
+    #     v_min, v_max = value_envelopes[col]
+
+    #     outside_env = (
+    #         (current_chunk_raw[col] < v_min)
+    #         |
+    #         (current_chunk_raw[col] > v_max)
+    #     )
+
+    #     spike_rows = raw_diff[
+    #         (raw_diff > diff_thresholds[col])
+    #         &
+    #         outside_env
+    #     ]
+
+    #     if len(spike_rows) > 0:
+    #         spike_features.append(
+    #             (
+    #                 col,
+    #                 round(float(spike_rows.max()), 4)
+    #             )
+    #         )
+
     for col in selected_features:
         raw_diff = current_chunk_raw[col].diff().abs().fillna(0)
         v_min, v_max = value_envelopes[col]
@@ -130,9 +154,7 @@ def classify_window(
         )
 
         spike_rows = raw_diff[
-            (raw_diff > diff_thresholds[col])
-            &
-            outside_env
+            raw_diff > diff_thresholds[col]
         ]
 
         if len(spike_rows) > 0:
