@@ -64,6 +64,32 @@ def compute_flags(
                 index=df_scaled.index
             )
 
+        # raw_diff = (
+        #     df_raw[col]
+        #     .diff()
+        #     .abs()
+        #     .fillna(0)
+        # )
+
+        # v_min, v_max = (
+        #     value_envelopes[col]
+        # )
+
+        # outside_env = (
+        #     (df_raw[col] < v_min)
+        #     |
+        #     (df_raw[col] > v_max)
+        # )
+
+        # layer_c = (
+        #     (
+        #         raw_diff
+        #         > diff_thresholds[col]
+        #     )
+        #     &
+        #     outside_env
+        # ).astype(int)
+
         raw_diff = (
             df_raw[col]
             .diff()
@@ -82,13 +108,9 @@ def compute_flags(
         )
 
         layer_c = (
-            (
-                raw_diff
-                > diff_thresholds[col]
-            )
-            &
-            outside_env
+            raw_diff > diff_thresholds[col]
         ).astype(int)
+
 
         flags = (
             flags
