@@ -32,7 +32,7 @@ def build_historical_reference(
             .dropna()
         )
 
-        diff_thresholds[col] = raw_diffs.quantile(0.9999)
+        diff_thresholds[col] = raw_diffs.quantile(0.99)
 
         value_envelopes[col] = (
             hist_raw_full[col].min(),
