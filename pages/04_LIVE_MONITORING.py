@@ -44,6 +44,7 @@ def reset_stream_state():
     st.session_state["live_stream_alerts"] = []
     st.session_state["live_stream_windows"] = []
     st.session_state["live_stream_last_event"] = None
+    st.session_state["live_stream_row_alerts"] = []
 
 
 def ensure_stream_state(signature):
@@ -56,7 +57,7 @@ def ensure_stream_state(signature):
     st.session_state.setdefault("live_stream_alerts", [])
     st.session_state.setdefault("live_stream_windows", [])
     st.session_state.setdefault("live_stream_last_event", None)
-
+    st.session_state.setdefault("live_stream_row_alerts", [])
 
 def format_display_cell(value):
     if isinstance(value, (list, tuple, dict)):
@@ -117,7 +118,7 @@ def classify_window(
     current_point_ratio = current_chunk["point_anomaly"].mean()
     current_if_score = current_chunk["if_score"].mean()
 
-    spike_features = []
+    # spike_features = []
 
     # for col in selected_features:
     #     raw_diff = current_chunk_raw[col].diff().abs().fillna(0)
@@ -143,27 +144,7 @@ def classify_window(
     #             )
     #         )
 
-    for col in selected_features:
-        raw_diff = current_chunk_raw[col].diff().abs().fillna(0)
-        v_min, v_max = value_envelopes[col]
-
-        outside_env = (
-            (current_chunk_raw[col] < v_min)
-            |
-            (current_chunk_raw[col] > v_max)
-        )
-
-        spike_rows = raw_diff[
-            raw_diff > diff_thresholds[col]
-        ]
-
-        if len(spike_rows) > 0:
-            spike_features.append(
-                (
-                    col,
-                    round(float(spike_rows.max()), 4)
-                )
-            )
+    
 
     window_z = {
         col: round(
@@ -193,8 +174,8 @@ def classify_window(
     if current_point_ratio >= POINT_RATIO_CRITICAL:
         alert_type = "CRITICAL"
 
-    elif spike_features:
-        alert_type = "SPIKE ALERT"
+    # elif spike_features:
+    #     alert_type = "SPIKE ALERT"
 
     elif (
         similarity > SIMILARITY_THRESHOLD
@@ -222,10 +203,25 @@ def classify_window(
         "point_ratio": round(current_point_ratio, 4),
         "if_score": round(current_if_score, 4),
         "matched_frame": matched_frame,
-        "spike_features": spike_features,
+        # "spike_features": spike_features,
         "top_sensors": top_sensors,
     }
 
+def check_row_spike(
+    current_row,
+    previous_row,
+    diff_thresholds,
+    selected_features,
+):
+    spike_features = []
+
+    for col in selected_features:
+        diff = abs(current_row[col] - previous_row[col])
+
+        if diff > diff_thresholds[col]:
+            spike_features.append((col, round(float(diff), 4)))
+
+    return spike_features
 
 st.set_page_config(
     page_title="Live Monitoring",
@@ -327,6 +323,17 @@ should_ingest = (
     or st.session_state["live_stream_running"]
 )
 
+# if should_ingest and cursor < len(live_raw_full):
+#     cursor += 1
+#     st.session_state["live_stream_cursor"] = cursor
+#     st.session_state["live_stream_last_event"] = {
+#         "type": "row",
+#         "message": f"Ingested row {cursor}"
+#     }
+
+# elif cursor >= len(live_raw_full):
+#     st.session_state["live_stream_running"] = False
+
 if should_ingest and cursor < len(live_raw_full):
     cursor += 1
     st.session_state["live_stream_cursor"] = cursor
@@ -334,6 +341,30 @@ if should_ingest and cursor < len(live_raw_full):
         "type": "row",
         "message": f"Ingested row {cursor}"
     }
+
+    if cursor >= 2:
+        current_row = live_raw_full.iloc[cursor - 1]
+        previous_row = live_raw_full.iloc[cursor - 2]
+
+        row_spikes = check_row_spike(
+            current_row,
+            previous_row,
+            diff_thresholds,
+            selected_features,
+        )
+
+        if row_spikes:
+            spike_alert = {
+                "time": str(current_row["Timestamp"]),
+                "row_index": cursor - 1,
+                "alert_type": "SPIKE ALERT",
+                "spike_features": row_spikes,
+            }
+            st.session_state["live_stream_row_alerts"].append(spike_alert)
+            st.session_state["live_stream_last_event"] = {
+                "type": "alert",
+                "message": f"SPIKE ALERT at {spike_alert['time']}"
+            }
 
 elif cursor >= len(live_raw_full):
     st.session_state["live_stream_running"] = False
@@ -510,6 +541,18 @@ if len(alerts_df):
     )
 else:
     st.caption("No alerts yet. Alerts are generated only when a chunk is mapped.")
+
+st.subheader("Spike Alerts (Row-Level)")
+
+row_alerts_df = pd.DataFrame(st.session_state["live_stream_row_alerts"])
+
+if len(row_alerts_df):
+    st.dataframe(
+        prepare_dataframe_for_display(row_alerts_df.tail(50)),
+        use_container_width=True
+    )
+else:
+    st.caption("No row-level spikes detected yet.")
 
 st.subheader("Chunk Mapping History")
 
